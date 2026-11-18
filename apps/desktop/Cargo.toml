@@ -1,0 +1,14 @@
+[package]
+name = "nexus-q-password"
+version = "0.1.0"
+description = "NEXUS-Q Password local-first desktop password manager"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = "2.7.4"
+
+[dependencies]
+tauri = "2.12.5"
+nexus-q-password-core = { path = "../../crates/password-core" }

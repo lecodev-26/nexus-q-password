@@ -1,51 +1,65 @@
 # NEXUS-Q Password
 
-Secure, local-first desktop password manager with an encrypted credential vault.
+Independent, local-first desktop password manager with an encrypted credential vault.
 
-> **Status:** Initial development · Target release: `0.1.0` (first official release)
+> **Status:** early development · Target first official release: `0.1.0`.
 >
-> **Repository:** Private during development. The repository may become public at launch.
+> **Repository:** private during development. Do not store real credentials in the current development build.
 
 ## Product principles
 
-- Local-first: credentials remain on the user's device; no account or cloud service is required.
-- Security by design: audited cryptographic primitives, authenticated encryption, password-based key derivation, and secure randomness.
-- No plaintext credential storage.
-- Independent application: NEXUS-Q Password is a standalone product. Any future NEXUS-Q interoperability must be explicit and must not weaken vault isolation.
-- Consistent ecosystem experience: reuse the established visual language and interaction patterns from NEXUS-Q Sign and NEXUS-Q Vault.
+- Local-first: no cloud account, hosted service, or network connection is required.
+- Privacy by default: no credential content, master password, or key material in logs, telemetry, crash reports, or issue attachments.
+- Fail closed: malformed, unsupported, or tampered vault data must never yield partial plaintext.
+- Independent application: no runtime or build dependency on NEXUS-Q Sign, NEXUS-Q Vault, or the separate NEXUS-Q Core repository.
+- Consistent ecosystem experience: reproduce the actual Sign/Vault visual system and interaction patterns.
 
 ## Planned 0.1.0 scope
 
-- Cryptographically secure password generator.
-- Local encrypted vault protected by a master password.
-- Credential create, read, update, delete, search, categories, tags, and favorites.
-- Automatic lock and clipboard clearing.
-- Password strength and reuse indicators.
-- Encrypted backup and restore, with a documented format.
-- Identity protection and transfer capabilities, subject to a reviewed security design.
-- Linux, Windows, and macOS desktop packages.
+- Master-password protected local vault with create, unlock, lock, and password change.
+- Credential CRUD, search, categories, tags, and favorites.
+- Cryptographically secure password generator and local reuse indicators.
+- Automatic locking and clipboard clearing with platform-aware safeguards.
+- Independently encrypted backups and documented import/export.
+- A separately specified NEXUS-Q identity protection/transfer capability, gated on protocol design and security review.
+- Native Linux, Windows, and macOS desktop packages.
 
-All features listed above are release goals, not claims of current implementation.
+These are release goals, not claims that all features are implemented. See [PRODUCT.md](docs/PRODUCT.md).
 
-## Technology direction
+## Technology
 
 - Tauri 2
 - Svelte 5 + TypeScript
-- Rust security/core layer
-- Argon2id for master-password key derivation, with parameters selected and documented during implementation.
-- Authenticated encryption using a maintained, audited Rust cryptography library.
-- Operating-system cryptographic randomness.
+- Rust
+- Proposed v1 cryptography: Argon2id + XChaCha20-Poly1305 AEAD, OS CSPRNG, and zeroization-aware secret handling.
 
-Cryptographic choices and the vault file format must be reviewed and documented before being treated as stable.
+The crypto implementation and binary format are still under development and review. See [security architecture](docs/architecture/SECURITY_ARCHITECTURE.md), [vault format proposal](docs/architecture/VAULT_FORMAT_V1.md), and [threat model](docs/security/THREAT_MODEL.md).
 
-## Development and CI policy
+## Development
 
-- GitHub Actions is used only for validation and generation of downloadable build artifacts.
-- CI is started manually with `workflow_dispatch`; no automatic deployment or publishing pipeline.
-- Build artifacts are temporary workflow artifacts with a defined retention period.
-- Official releases are created deliberately after verification; CI does not publish releases or deploy the application.
-- Pull requests and changes must pass the applicable checks before release.
+```sh
+cd apps/desktop
+npm ci
+npm run check
+npm run build
+npx tauri dev
+```
 
-## Development status
+Rust checks and tests:
 
-The application scaffold, security model, threat model, tests, and packaging workflows are being prepared. See the repository issues and milestone for the implementation plan.
+```sh
+cargo fmt --manifest-path apps/desktop/Cargo.toml -- --check
+cargo test --manifest-path crates/password-core/Cargo.toml
+```
+
+## CI and release policy
+
+- GitHub Actions runs only on manual `workflow_dispatch`.
+- CI validates the project and generates temporary installers for Linux, Windows, and macOS.
+- Artifacts are retained for 14 days.
+- CI does not deploy, publish GitHub Releases, or attach binaries to releases.
+- The repository remains private until an explicitly approved launch.
+
+## Security reporting
+
+See [SECURITY.md](SECURITY.md). Do not submit real passwords, vault files, private keys, or recovery material in issues or reports.

@@ -28,7 +28,7 @@ Use Argon2id to derive a 256-bit key from the master password and a unique rando
 
 **Status:** accepted.
 
-CI is manually triggered (`workflow_dispatch`), validates the frontend and Rust code, and uploads temporary build artifacts. It does not publish releases, deploy services, or attach binaries to GitHub Releases. The repository remains private until an explicitly approved launch.
+CI is manually triggered (`workflow_dispatch`), validates the frontend and Rust code, and uploads temporary build artifacts. It does not publish releases, deploy services, or attach binaries to GitHub Releases. Repository visibility is public; release publication remains a separate, explicitly approved action.
 
 **Reason:** match the established Sign workflow and retain release control.
 

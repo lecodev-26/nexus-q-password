@@ -50,3 +50,14 @@ The NQPW v1 header is exactly 66 bytes with big-endian integer fields, fixed alg
 Atomic persistence is a separate platform-sensitive layer and must not be implemented using a delete-then-rename fallback. Real credential storage remains gated on complete schema validation, safe atomic replacement on all supported platforms, session lifecycle, and security review.
 
 **Reason:** remove ambiguity from the binary format and make parser behavior testable without weakening the platform-specific durability requirements.
+
+
+## ADR-007: Use a cross-platform atomic writer for vault persistence
+
+**Status:** Accepted for the v1 persistence implementation; platform-specific release verification remains required.
+
+**Decision:** Use the `atomic-write-file` crate to stage encrypted envelopes in the destination directory, sync the staged file, and atomically replace the destination without a delete-then-rename fallback. Unix writes explicitly set staged-file permissions to `0600`; Unix reads use `O_NOFOLLOW`, and Windows reads open reparse points without following them. All reads and writes enforce the NQPW 64 MiB envelope limit.
+
+**Rationale:** Hand-rolled replacement semantics are easy to get wrong across Windows and Unix. The selected crate documents support for both and implements Unix directory syncing. The app must still use an application-owned directory with restrictive permissions; atomic replacement is not a defense against a hostile writer controlling that directory.
+
+**Consequences:** The storage layer accepts ciphertext envelopes only. The caller remains responsible for serializing and validating the logical vault schema and for authenticating/decrypting via the crypto core. Cross-platform CI/build verification and independent security review remain release gates.

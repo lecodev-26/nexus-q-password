@@ -14,3 +14,12 @@
 Do not apply a forced major downgrade to the established Svelte 5 / Vite 7 toolchain without compatibility testing. CI currently blocks high-severity advisories in production dependencies, while this development-toolchain advisory remains documented and must be revisited as soon as a patched `picomatch` release or compatible upstream dependency update is available.
 
 This is not a declaration that the development toolchain is vulnerability-free. Re-run the full audit before release and record the resolution or accepted residual risk.
+
+
+## Rust core dependencies added for vault persistence
+
+- `atomic-write-file 0.3.1` provides same-directory staged writes and platform-specific atomic replacement for Unix and Windows. Its Unix implementation syncs the containing directory after rename. The crate's documented limitations (including possible orphaned named temporary files after abrupt termination on platforms without anonymous temp files) are recorded in the vault format specification.
+- `libc 0.2` is used only for Unix no-follow and close-on-exec flags when opening the vault file.
+- `tempfile 3.27` is a development-only dependency for isolated persistence tests.
+
+This is a source-level dependency review, not a vulnerability scan or independent security audit. Re-run the Rust dependency audit before release.

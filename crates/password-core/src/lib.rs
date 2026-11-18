@@ -429,3 +429,6 @@ mod envelope_parser_tests {
         );
     }
 }
+
+pub mod vault_storage;
+pub use vault_storage::{VaultStorageError, load_envelope, save_envelope};

@@ -340,6 +340,79 @@ mod envelope_parser_tests {
     }
 
     #[test]
+    fn rejects_unknown_algorithm_identifiers() {
+        let mut envelope = minimal_envelope();
+        envelope[5] = 9;
+        assert_eq!(
+            open_payload(b"master password", &envelope).unwrap_err(),
+            VaultCryptoError::UnsupportedAlgorithm
+        );
+
+        let mut envelope = minimal_envelope();
+        envelope[6] = 9;
+        assert_eq!(
+            open_payload(b"master password", &envelope).unwrap_err(),
+            VaultCryptoError::UnsupportedAlgorithm
+        );
+    }
+
+    #[test]
+    fn rejects_kdf_parameters_outside_each_bound() {
+        for (offset, value) in [
+            (8, (MIN_MEMORY_KIB - 1).to_be_bytes()),
+            (8, (MAX_MEMORY_KIB + 1).to_be_bytes()),
+            (12, (MIN_ITERATIONS - 1).to_be_bytes()),
+            (12, (MAX_ITERATIONS + 1).to_be_bytes()),
+        ] {
+            let mut envelope = minimal_envelope();
+            envelope[offset..offset + 4].copy_from_slice(&value);
+            assert_eq!(
+                open_payload(b"master password", &envelope).unwrap_err(),
+                VaultCryptoError::UnsafeParameters
+            );
+        }
+
+        let mut envelope = minimal_envelope();
+        envelope[16] = MAX_PARALLELISM + 1;
+        assert_eq!(
+            open_payload(b"master password", &envelope).unwrap_err(),
+            VaultCryptoError::UnsafeParameters
+        );
+    }
+
+    #[test]
+    fn rejects_passwords_outside_input_bounds() {
+        assert_eq!(
+            open_payload(b"", &minimal_envelope()).unwrap_err(),
+            VaultCryptoError::InvalidPassword
+        );
+        let oversized = vec![b'x'; 1025];
+        assert_eq!(
+            open_payload(&oversized, &minimal_envelope()).unwrap_err(),
+            VaultCryptoError::InvalidPassword
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_container_before_parsing() {
+        let oversized = vec![0u8; MAX_VAULT_BYTES + 1];
+        assert_eq!(
+            open_payload(b"master password", &oversized).unwrap_err(),
+            VaultCryptoError::TooLarge
+        );
+    }
+
+    #[test]
+    fn rejects_trailing_bytes_even_when_declared_length_is_valid() {
+        let mut envelope = minimal_envelope();
+        envelope.push(0);
+        assert_eq!(
+            open_payload(b"master password", &envelope).unwrap_err(),
+            VaultCryptoError::InvalidFormat
+        );
+    }
+
+    #[test]
     fn rejects_truncated_and_inconsistent_envelopes() {
         let mut envelope = minimal_envelope();
         envelope.pop();

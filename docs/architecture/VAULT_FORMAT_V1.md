@@ -1,50 +1,48 @@
-# Proposed encrypted vault container — version 1
+# NQPW encrypted vault container — version 1
 
-**Status:** proposal. The binary encoding and parser must be implemented, tested, and reviewed before any real credentials are stored.
+**Status:** frozen implementation profile for v1. This format is an engineering baseline, not an independent security audit or permission to store real credentials in the current development build. Any incompatible change requires a new format version.
 
-## Goals
+## Canonical binary encoding
 
-- One portable, versioned encrypted container.
-- Authenticate all public header fields before accepting plaintext.
-- Keep credential data and sensitive metadata encrypted.
-- Permit future migration without guessing algorithms or silently downgrading.
+All integers are unsigned big-endian. The header is exactly 66 bytes; there are no optional fields, padding, extensions, or trailing bytes in v1.
 
-## Logical layout
+| Offset | Size | Field | Required value / encoding |
+| ---: | ---: | --- | --- |
+| 0 | 4 | Magic | ASCII `NQPW` |
+| 4 | 1 | Format version | `1` |
+| 5 | 1 | KDF identifier | `1` = Argon2id |
+| 6 | 1 | AEAD identifier | `1` = XChaCha20-Poly1305 |
+| 7 | 1 | Reserved | `0` |
+| 8 | 4 | Argon2 memory | KiB, big-endian |
+| 12 | 4 | Argon2 iterations | unsigned big-endian |
+| 16 | 1 | Argon2 parallelism | lanes |
+| 17 | 1 | Derived key length | exactly `32` bytes |
+| 18 | 16 | Salt | OS-CSPRNG random bytes |
+| 34 | 24 | XChaCha20 nonce | OS-CSPRNG random bytes |
+| 58 | 8 | Ciphertext length | includes the 16-byte AEAD tag |
+| 66 | variable | Ciphertext | encrypted payload followed by AEAD tag |
 
-The proposed v1 container is a bounded binary envelope:
+The complete container is limited to 64 MiB (67,108,864 bytes), including the 66-byte header and 16-byte tag. The plaintext limit is therefore 67,108,782 bytes. Empty plaintext is valid at the envelope layer; the logical vault schema must reject an empty or invalid vault document before accepting it as a usable vault.
 
-1. Fixed magic bytes: ASCII `NQPW`.
-2. Unsigned format version: `1`.
-3. KDF identifier: Argon2id v1.3.
-4. Cipher identifier: XChaCha20-Poly1305.
-5. KDF parameters: memory KiB, iterations, parallelism, output length.
-6. 16-byte random salt.
-7. 24-byte random nonce.
-8. Ciphertext length (bounded, canonical integer encoding).
-9. Ciphertext followed by the AEAD authentication tag (as defined by the selected library).
+## Supported cryptographic profile
 
-The exact byte order, integer widths, canonical encoding, maximum file size, and error mapping must be frozen in code and documented in the implementation ADR before v1 is considered stable. Parsers reject trailing data unless the finalized specification explicitly permits extensions.
+- KDF: Argon2id, version 1.3 (`0x13`), 32-byte output.
+- Default KDF parameters: 65,536 KiB memory, 3 iterations, parallelism 1.
+- Accepted bounds: memory 32,768–262,144 KiB; iterations 2–6; parallelism 1–4; memory must be at least `8 × parallelism` KiB.
+- AEAD: XChaCha20-Poly1305 with a 24-byte nonce and 16-byte tag.
+- Password input: 1–1,024 bytes. The UI must define and consistently enforce its Unicode normalization policy before calling the core; the core treats password bytes literally and performs no normalization.
+- Randomness: OS CSPRNG only. Generate a fresh salt and nonce for every seal operation.
 
-## Encryption and decryption
+Readers must validate the total input size, exact header size, magic, version, algorithm identifiers, reserved byte, key length, KDF bounds, declared ciphertext length, and exact total file length before running Argon2id. No header value may cause an unbounded allocation or KDF operation. Unknown versions and algorithm identifiers fail closed.
 
-- Validate magic, version, identifiers, lengths, and KDF parameter bounds before allocating or running Argon2id.
-- Derive a 32-byte key from the master password and the stored salt using the exact supported Argon2id version and parameters.
-- Authenticate the exact canonical header bytes (from magic through nonce and including all KDF/cipher identifiers and parameters) as AEAD associated data.
-- Encrypt the complete serialized logical vault with a fresh OS-random nonce on every save.
-- On open, do not expose any plaintext until AEAD authentication and complete payload/schema validation succeed.
-- Wrong password, altered header, altered ciphertext, truncation, unsupported version, invalid parameters, and malformed payload return safe errors without partial plaintext.
+## Authentication and failure behavior
 
-## Parameter bounds
+The exact 66 header bytes are AEAD associated data. A change to any header field must therefore fail authentication (or be rejected earlier as malformed/unsupported/unsafe). The ciphertext length must equal the actual bytes after the header, and trailing data is forbidden. No plaintext is returned unless AEAD authentication succeeds. The caller must additionally validate the complete decrypted logical-vault schema before making it available to the application.
 
-The implementation must define reviewed lower and upper bounds for memory, iterations, parallelism, output length, and ciphertext size. Reject values outside the supported profile before expensive work. Never accept attacker-controlled unbounded memory or CPU settings from a file header.
+Wrong password and authenticated-data/ciphertext tampering return a generic authentication error. Malformed input, unsupported versions/algorithms, unsafe KDF parameters, and excessive sizes return bounded non-secret errors. Never include password, plaintext, key, salt/nonce contents, or vault data in logs or error strings.
 
-## Migration
+## Save and migration requirements
 
-A future format version gets an explicit parser and migration path. Migration decrypts and validates the old format, then writes a new authenticated container using a fresh salt and nonce. Preserve the original until the new file has been fully written, flushed, and verified. Never silently rewrite on open.
+A save serializes a complete validated snapshot, seals it with a fresh salt and nonce, and writes only ciphertext. File persistence must use a restrictive temporary file in the destination directory, flush and sync the completed file, atomically replace the destination using platform-correct replacement semantics, and sync the parent directory where supported. On failure, preserve the last known-good vault and remove temporary files. Do not silently fall back to delete-then-rename because that creates a data-loss window.
 
-## Open questions before format freeze
-
-- Final canonical byte encoding and maximum container size.
-- Exact Argon2 crate/version and validated parameter profile per supported OS.
-- Whether atomic replacement semantics require platform-specific handling or a journal/backup strategy.
-- Whether a future large-vault design needs chunked authenticated encryption; do not improvise chunking in v1.
+A future format version gets an explicit parser and migration path. Migration decrypts and validates the old format, then writes a new authenticated container using a fresh salt and nonce. Preserve the original until the new file has been fully written, flushed, and verified. Never silently rewrite on open. Chunked encryption is out of scope for v1.

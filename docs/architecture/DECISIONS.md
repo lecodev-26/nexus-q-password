@@ -39,3 +39,14 @@ CI is manually triggered (`workflow_dispatch`), validates the frontend and Rust 
 The identity protection/transfer capability is part of the planned product scope, but no cryptographic protocol will be implemented until its object model, algorithms, recipient authentication, key lifecycle, recovery, format, and interoperability are separately specified and reviewed.
 
 **Reason:** identity transfer is a distinct security protocol and must not be improvised or conflated with vault encryption.
+
+
+## ADR-006 — Freeze NQPW encrypted container v1 encoding
+
+**Status:** accepted as the v1 implementation profile; pending independent security review.
+
+The NQPW v1 header is exactly 66 bytes with big-endian integer fields, fixed algorithm identifiers, Argon2id v1.3, XChaCha20-Poly1305, a 16-byte salt, a 24-byte nonce, a 32-byte derived key, and a 64 MiB total-container limit. The complete header is authenticated as AEAD associated data. Unknown versions, algorithms, reserved values, unsafe KDF parameters, inconsistent lengths, truncation, and trailing bytes fail closed.
+
+Atomic persistence is a separate platform-sensitive layer and must not be implemented using a delete-then-rename fallback. Real credential storage remains gated on complete schema validation, safe atomic replacement on all supported platforms, session lifecycle, and security review.
+
+**Reason:** remove ambiguity from the binary format and make parser behavior testable without weakening the platform-specific durability requirements.

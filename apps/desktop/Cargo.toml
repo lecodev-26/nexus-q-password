@@ -12,3 +12,4 @@ tauri-build = "2.7.4"
 [dependencies]
 tauri = "2.12.5"
 nexus-q-password-core = { path = "../../crates/password-core" }
+zeroize = { version = "1.8", features = ["alloc", "serde"] }

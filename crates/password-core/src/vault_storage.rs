@@ -72,6 +72,27 @@ pub fn save_envelope(path: impl AsRef<Path>, envelope: &[u8]) -> Result<(), Vaul
     Ok(())
 }
 
+/// Create a new encrypted vault without ever replacing an existing path.
+/// The file is created exclusively with owner-only permissions on Unix.
+pub fn create_envelope(path: impl AsRef<Path>, envelope: &[u8]) -> Result<(), VaultStorageError> {
+    validate_envelope_shape(envelope)?;
+    let path = path.as_ref();
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    if let Err(error) = file.write_all(envelope).and_then(|()| file.sync_all()) {
+        drop(file);
+        let _ = fs::remove_file(path);
+        return Err(VaultStorageError::Io(error));
+    }
+    Ok(())
+}
+
 /// Read an encrypted envelope without following a symbolic link and with a hard size bound.
 pub fn load_envelope(path: impl AsRef<Path>) -> Result<Vec<u8>, VaultStorageError> {
     let path = path.as_ref();
@@ -136,6 +157,30 @@ mod tests {
 
     fn encrypted_fixture() -> Vec<u8> {
         seal_payload(b"test master password", b"encrypted vault fixture").expect("seal fixture")
+    }
+
+    #[test]
+    fn create_never_overwrites_an_existing_vault() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("vault.nqpw");
+        let original = encrypted_fixture();
+        let replacement = encrypted_fixture();
+        create_envelope(&path, &original).expect("create");
+        assert!(create_envelope(&path, &replacement).is_err());
+        assert_eq!(load_envelope(&path).expect("original remains"), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn newly_created_vault_has_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("vault.nqpw");
+        create_envelope(&path, &encrypted_fixture()).expect("create");
+        assert_eq!(
+            fs::metadata(path).expect("metadata").permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]

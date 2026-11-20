@@ -29,3 +29,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Tauri generated schemas
+/apps/desktop/gen/schemas/

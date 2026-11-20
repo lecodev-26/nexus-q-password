@@ -40,6 +40,8 @@ pub enum VaultCryptoError {
     RandomnessUnavailable,
     EncryptionFailed,
     AuthenticationFailed,
+    SessionLocked,
+    StaleSession,
 }
 
 impl std::fmt::Display for VaultCryptoError {
@@ -56,14 +58,35 @@ impl std::fmt::Display for VaultCryptoError {
             Self::AuthenticationFailed => {
                 "Vault could not be authenticated. Check the master password or file integrity."
             }
+            Self::SessionLocked => "Vault session is locked.",
+            Self::StaleSession => "Vault session changed before the operation could be committed.",
         })
     }
 }
 
 impl std::error::Error for VaultCryptoError {}
 
+type SealedPayload = (Vec<u8>, Zeroizing<[u8; KEY_LEN]>, [u8; SALT_LEN]);
+type OpenedPayload = (
+    Zeroizing<[u8; KEY_LEN]>,
+    [u8; SALT_LEN],
+    u32,
+    u32,
+    u8,
+    Zeroizing<Vec<u8>>,
+);
+
 /// Encrypt a complete serialized vault payload into a v1 NQPW envelope.
 pub fn seal_payload(password: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, VaultCryptoError> {
+    seal_payload_with_key(password, plaintext).map(|(envelope, _, _)| envelope)
+}
+
+/// Encrypt a payload and return its derived key material for an in-memory session.
+/// The key is zeroized when the returned value is dropped.
+pub(crate) fn seal_payload_with_key(
+    password: &[u8],
+    plaintext: &[u8],
+) -> Result<SealedPayload, VaultCryptoError> {
     if password.is_empty() || password.len() > 1024 {
         return Err(VaultCryptoError::InvalidPassword);
     }
@@ -82,7 +105,7 @@ pub fn seal_payload(password: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, VaultC
     header.push(FORMAT_VERSION);
     header.push(KDF_ARGON2ID);
     header.push(CIPHER_XCHACHA20_POLY1305);
-    header.push(0); // Reserved; must be zero in v1.
+    header.push(0);
     header.extend_from_slice(&DEFAULT_MEMORY_KIB.to_be_bytes());
     header.extend_from_slice(&DEFAULT_ITERATIONS.to_be_bytes());
     header.push(DEFAULT_PARALLELISM);
@@ -110,10 +133,9 @@ pub fn seal_payload(password: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, VaultC
             },
         )
         .map_err(|_| VaultCryptoError::EncryptionFailed)?;
-
     let mut envelope = header;
     envelope.extend_from_slice(&encrypted);
-    Ok(envelope)
+    Ok((envelope, key, salt))
 }
 
 /// Authenticate and decrypt a complete v1 NQPW envelope.
@@ -121,6 +143,14 @@ pub fn open_payload(
     password: &[u8],
     envelope: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, VaultCryptoError> {
+    open_payload_with_key(password, envelope).map(|(_, _, _, _, _, plaintext)| plaintext)
+}
+
+/// Authenticate and decrypt while returning the derived key for an unlocked session.
+pub(crate) fn open_payload_with_key(
+    password: &[u8],
+    envelope: &[u8],
+) -> Result<OpenedPayload, VaultCryptoError> {
     if password.is_empty() || password.len() > 1024 {
         return Err(VaultCryptoError::InvalidPassword);
     }
@@ -157,11 +187,7 @@ pub fn open_payload(
     );
     let parallelism = header[16];
     validate_parameters(memory_kib, iterations, parallelism)?;
-
     let salt: [u8; SALT_LEN] = header[18..34]
-        .try_into()
-        .map_err(|_| VaultCryptoError::InvalidFormat)?;
-    let nonce: [u8; NONCE_LEN] = header[34..58]
         .try_into()
         .map_err(|_| VaultCryptoError::InvalidFormat)?;
     let ciphertext_len = u64::from_be_bytes(
@@ -178,6 +204,60 @@ pub fn open_payload(
     }
 
     let key = derive_key(password, &salt, memory_kib, iterations, parallelism)?;
+    let plaintext = decrypt_with_key(&key, envelope)?;
+    Ok((key, salt, memory_kib, iterations, parallelism, plaintext))
+}
+
+/// Decrypt only after validating the complete envelope and its authenticated header.
+pub(crate) fn decrypt_with_key(
+    key: &Zeroizing<[u8; KEY_LEN]>,
+    envelope: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, VaultCryptoError> {
+    if envelope.len() > MAX_VAULT_BYTES {
+        return Err(VaultCryptoError::TooLarge);
+    }
+    if envelope.len() < HEADER_LEN + TAG_LEN {
+        return Err(VaultCryptoError::InvalidFormat);
+    }
+    let header = &envelope[..HEADER_LEN];
+    if &header[..4] != MAGIC {
+        return Err(VaultCryptoError::InvalidFormat);
+    }
+    if header[4] != FORMAT_VERSION {
+        return Err(VaultCryptoError::UnsupportedVersion);
+    }
+    if header[5] != KDF_ARGON2ID || header[6] != CIPHER_XCHACHA20_POLY1305 {
+        return Err(VaultCryptoError::UnsupportedAlgorithm);
+    }
+    if header[7] != 0 || header[17] != KEY_LEN as u8 {
+        return Err(VaultCryptoError::InvalidFormat);
+    }
+    let memory_kib = u32::from_be_bytes(
+        header[8..12]
+            .try_into()
+            .map_err(|_| VaultCryptoError::InvalidFormat)?,
+    );
+    let iterations = u32::from_be_bytes(
+        header[12..16]
+            .try_into()
+            .map_err(|_| VaultCryptoError::InvalidFormat)?,
+    );
+    let parallelism = header[16];
+    validate_parameters(memory_kib, iterations, parallelism)?;
+    let ciphertext_len = u64::from_be_bytes(
+        header[58..66]
+            .try_into()
+            .map_err(|_| VaultCryptoError::InvalidFormat)?,
+    );
+    let ciphertext_len = usize::try_from(ciphertext_len).map_err(|_| VaultCryptoError::TooLarge)?;
+    if !(TAG_LEN..=MAX_VAULT_BYTES - HEADER_LEN).contains(&ciphertext_len)
+        || envelope.len() != HEADER_LEN + ciphertext_len
+    {
+        return Err(VaultCryptoError::InvalidFormat);
+    }
+    let nonce: [u8; NONCE_LEN] = header[34..58]
+        .try_into()
+        .map_err(|_| VaultCryptoError::InvalidFormat)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
         .map_err(|_| VaultCryptoError::AuthenticationFailed)?;
     let plaintext = cipher
@@ -431,4 +511,7 @@ mod envelope_parser_tests {
 }
 
 pub mod vault_storage;
-pub use vault_storage::{VaultStorageError, load_envelope, save_envelope};
+pub use vault_storage::{VaultStorageError, create_envelope, load_envelope, save_envelope};
+
+pub mod vault_session;
+pub use vault_session::{PasswordChange, VaultSession};

@@ -9,9 +9,9 @@ This crate is internal to the NEXUS-Q Password product. It is not a shared depen
 
 `vault_storage` provides bounded `load_envelope` and atomic `save_envelope` operations. It stores only complete NQPW ciphertext envelopes; it does not serialize credentials, validate the decrypted vault schema, or manage master-password sessions.
 
-- Atomic replacement is implemented with `atomic-write-file` (same-directory staging and platform-specific replacement; Unix directory sync).
+- Atomic replacement is implemented with `atomic-write-file` (same-directory staging and file sync; Unix/macOS directory sync). Windows uses Rust's `std::fs::rename` replacement semantics but does not currently claim directory-entry durability across power loss.
 - Unix staged files are changed to owner-only `0600` before any ciphertext is written.
 - Symbolic-link destinations are rejected. Reads use no-follow/open-reparse-point flags and require a regular file.
 - File size is bounded to the NQPW 64 MiB limit before and during reads.
 - The caller must use an existing application-owned directory with restrictive directory permissions. Atomic replacement does not protect against a hostile process that can write to that directory.
-- Windows ACL policy, supported-target crash durability, and independent security review remain release gates.
+- Windows ACL verification, Windows target/runtime validation, Windows crash durability, and independent security review remain release gates.

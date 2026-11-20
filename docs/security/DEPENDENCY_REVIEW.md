@@ -18,7 +18,7 @@ This is not a declaration that the development toolchain is vulnerability-free. 
 
 ## Rust core dependencies added for vault persistence
 
-- `atomic-write-file 0.3.1` provides same-directory staged writes and platform-specific atomic replacement for Unix and Windows. Its Unix implementation syncs the containing directory after rename. The crate's documented limitations (including possible orphaned named temporary files after abrupt termination on platforms without anonymous temp files) are recorded in the vault format specification.
+- `atomic-write-file 0.3.1` provides same-directory staged writes and calls `sync_all` before replacement. Its Unix implementation uses descriptor-relative rename and syncs the containing directory after rename. Its generic non-Unix implementation delegates replacement to `std::fs::rename`; Rust documents that this replaces existing files on Windows through `MoveFileExW` with a fallback. The crate does not request `MOVEFILE_WRITE_THROUGH` and does not sync the parent directory on Windows, so Windows power-loss durability is not claimed. Possible orphaned named temporary files after abrupt termination on platforms without anonymous temp files are documented in the vault format specification.
 - `libc 0.2` is used only for Unix no-follow and close-on-exec flags when opening the vault file.
 - `tempfile 3.27` is a development-only dependency for isolated persistence tests.
 

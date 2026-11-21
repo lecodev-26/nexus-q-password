@@ -13,6 +13,16 @@
   let generatedPassword = "";
   let generatorMessage = "";
   let generatorBusy = false;
+  let vaultExists = false;
+  let vaultUnlocked = false;
+  let vaultLoading = true;
+  let vaultBusy = false;
+  let vaultMessage = "";
+  let vaultMessageError = false;
+  let masterPassword = "";
+  let confirmMasterPassword = "";
+  let newMasterPassword = "";
+  let confirmNewMasterPassword = "";
 
   const navigation: { id: Page; icon: string; label: string }[] = [
     { id: "overview", icon: "◫", label: "Overview" },
@@ -58,6 +68,112 @@
     }
   }
 
+  async function refreshVaultStatus(): Promise<void> {
+    vaultLoading = true;
+    try {
+      vaultExists = await invoke<boolean>("vault_exists");
+      vaultUnlocked = await invoke<boolean>("vault_is_unlocked");
+    } catch {
+      vaultMessage = "The vault status could not be read. Restart the application and try again.";
+      vaultMessageError = true;
+    } finally {
+      vaultLoading = false;
+    }
+  }
+
+  async function createVault(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    vaultMessage = "";
+    vaultMessageError = false;
+    if (masterPassword.length < 12) {
+      vaultMessage = "Use a master password with at least 12 characters.";
+      vaultMessageError = true;
+      return;
+    }
+    if (masterPassword !== confirmMasterPassword) {
+      vaultMessage = "The master passwords do not match.";
+      vaultMessageError = true;
+      return;
+    }
+    vaultBusy = true;
+    try {
+      await invoke("vault_create", { masterPassword });
+      masterPassword = "";
+      confirmMasterPassword = "";
+      await refreshVaultStatus();
+      vaultMessage = "Your encrypted vault has been created and is unlocked on this device.";
+    } catch {
+      vaultMessage = "The vault could not be created. Check available storage and try again.";
+      vaultMessageError = true;
+    } finally {
+      masterPassword = "";
+      confirmMasterPassword = "";
+      vaultBusy = false;
+    }
+  }
+
+  async function unlockVault(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    vaultBusy = true;
+    vaultMessage = "";
+    vaultMessageError = false;
+    try {
+      await invoke("vault_unlock", { masterPassword });
+      await refreshVaultStatus();
+      vaultMessage = "Vault unlocked. The derived encryption key is held in protected memory for this session.";
+    } catch {
+      vaultMessage = "Unable to unlock the vault. Check the master password and try again.";
+      vaultMessageError = true;
+    } finally {
+      masterPassword = "";
+      vaultBusy = false;
+    }
+  }
+
+  async function lockVault(): Promise<void> {
+    vaultBusy = true;
+    vaultMessage = "";
+    vaultMessageError = false;
+    try {
+      await invoke("vault_lock");
+      await refreshVaultStatus();
+      vaultMessage = "Vault locked. The active encryption key has been discarded.";
+    } catch {
+      vaultMessage = "The vault could not be locked. Please try again.";
+      vaultMessageError = true;
+    } finally {
+      vaultBusy = false;
+    }
+  }
+
+  async function changeMasterPassword(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    vaultMessage = "";
+    vaultMessageError = false;
+    if (newMasterPassword.length < 12) {
+      vaultMessage = "Use a new master password with at least 12 characters.";
+      vaultMessageError = true;
+      return;
+    }
+    if (newMasterPassword !== confirmNewMasterPassword) {
+      vaultMessage = "The new master passwords do not match.";
+      vaultMessageError = true;
+      return;
+    }
+    vaultBusy = true;
+    try {
+      await invoke("vault_change_master_password", { newMasterPassword });
+      vaultMessage = "Master password changed successfully.";
+    } catch {
+      vaultMessage = "The master password could not be changed. The previous password remains active.";
+      vaultMessageError = true;
+    } finally {
+      newMasterPassword = "";
+      confirmNewMasterPassword = "";
+      vaultBusy = false;
+    }
+  }
+
   async function copyGeneratedPassword(): Promise<void> {
     if (!generatedPassword) return;
     try {
@@ -70,6 +186,7 @@
 
   onMount(() => {
     applyTheme(localStorage.getItem("nexus-q-password-theme") === "dark");
+    void refreshVaultStatus();
   });
 </script>
 
@@ -99,8 +216,8 @@
         <span class="nav-icon">⚙</span><span class="nav-label">Settings</span>
       </button>
     </nav>
-    <div class="vault-status">
-      <i></i><span><b>Vault not created</b><small>Local storage · locked</small></span>
+    <div class="vault-status" class:unlocked={vaultUnlocked}>
+      <i></i><span><b>{vaultUnlocked ? "Vault unlocked" : vaultExists ? "Vault locked" : "Vault not created"}</b><small>Local storage · {vaultUnlocked ? "session active" : "locked"}</small></span>
     </div>
     <div class="version">VERSION 0.1.0 · DEVELOPMENT</div>
   </aside>
@@ -137,8 +254,44 @@
       </section>
     {:else if page === "passwords"}
       <section class="content">
-        <div class="hero-card"><p class="eyebrow">YOUR LOCAL VAULT</p><h2>Credential vault</h2><p class="muted">Your encrypted credential collection will be managed here. Vault creation, unlock, and credential operations are not connected yet.</p></div>
-        <div class="empty-state"><span class="feature-icon">▤</span><h3>Vault engine in development</h3><p class="muted">The versioned encrypted container and secure session lifecycle are being implemented before credential storage is enabled.</p></div>
+        <div class="hero-card"><p class="eyebrow">YOUR LOCAL VAULT</p><h2>Credential vault</h2><p class="muted">Create or unlock your encrypted local vault. Credential storage remains disabled until its encrypted record layer is complete.</p></div>
+        {#if vaultLoading}
+          <div class="empty-state"><h3>Checking vault status…</h3><p class="muted">Reading the local vault state securely.</p></div>
+        {:else if vaultUnlocked}
+          <div class="vault-panel">
+            <div class="vault-panel-heading"><span class="feature-icon">◈</span><div><h3>Vault is unlocked</h3><p class="muted">Your session is active. The master password is not retained.</p></div></div>
+            <div class="session-details"><span>ENCRYPTED CONTAINER</span><b>NQPW · Version 1</b><span>SESSION KEY</span><b>Protected in memory</b><span>CREDENTIAL RECORDS</span><b>Not enabled in this build</b></div>
+            <button class="secondary-action" type="button" onclick={lockVault} disabled={vaultBusy}>Lock vault</button>
+          </div>
+          <div class="vault-panel password-change-panel">
+            <p class="eyebrow">ACCOUNT SECURITY</p><h3>Change master password</h3><p class="muted">The new encrypted container is saved before the active session key is rotated.</p>
+            <form class="vault-form" onsubmit={changeMasterPassword}>
+              <label for="new-master-password">New master password</label><input id="new-master-password" type="password" bind:value={newMasterPassword} minlength="12" maxlength="1024" autocomplete="new-password" required />
+              <label for="confirm-new-master-password">Confirm new master password</label><input id="confirm-new-master-password" type="password" bind:value={confirmNewMasterPassword} minlength="12" maxlength="1024" autocomplete="new-password" required />
+              <button class="primary-action" type="submit" disabled={vaultBusy}>Change master password</button>
+            </form>
+          </div>
+        {:else if vaultExists}
+          <div class="vault-panel">
+            <div class="vault-panel-heading"><span class="feature-icon">▣</span><div><h3>Unlock your vault</h3><p class="muted">Enter your master password to authenticate and open the local encrypted container.</p></div></div>
+            <form class="vault-form" onsubmit={unlockVault}>
+              <label for="master-password">Master password</label><input id="master-password" type="password" bind:value={masterPassword} maxlength="1024" autocomplete="current-password" required />
+              <button class="primary-action" type="submit" disabled={vaultBusy || !masterPassword}>{vaultBusy ? "Unlocking…" : "Unlock vault"}</button>
+            </form>
+          </div>
+        {:else}
+          <div class="vault-panel">
+            <div class="vault-panel-heading"><span class="feature-icon">＋</span><div><h3>Create your encrypted vault</h3><p class="muted">Choose a strong master password. It cannot be recovered if you forget it.</p></div></div>
+            <form class="vault-form" onsubmit={createVault}>
+              <label for="create-master-password">Master password</label><input id="create-master-password" type="password" bind:value={masterPassword} minlength="12" maxlength="1024" autocomplete="new-password" required />
+              <label for="confirm-master-password">Confirm master password</label><input id="confirm-master-password" type="password" bind:value={confirmMasterPassword} minlength="12" maxlength="1024" autocomplete="new-password" required />
+              <p class="form-hint">Use at least 12 characters. A longer unique passphrase is recommended.</p>
+              <button class="primary-action" type="submit" disabled={vaultBusy || !masterPassword || !confirmMasterPassword}>{vaultBusy ? "Creating vault…" : "Create encrypted vault"}</button>
+            </form>
+          </div>
+        {/if}
+        {#if vaultMessage}<p class="vault-message" class:error={vaultMessageError} aria-live="polite">{vaultMessage}</p>{/if}
+        <div class="notice"><b>Credential storage is not enabled</b><p>This build currently verifies vault creation, authentication, and session locking only. Do not treat it as ready for real credentials.</p></div>
       </section>
     {:else if page === "generator"}
       <section class="content">

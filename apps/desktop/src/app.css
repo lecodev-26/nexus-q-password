@@ -182,3 +182,24 @@ body.dark .nav-item:hover, body.dark .nav-item.active { background: #303030; col
 .generator-message{font-size:11px;color:var(--muted);margin:14px 0 0}
 body.dark .generator-options{border-color:var(--line)}
 @media(max-width:620px){.generator-options{grid-template-columns:1fr}.length-control{align-items:flex-start;flex-direction:column}}
+
+/* Vault lifecycle — monochrome surfaces aligned with the NEXUS-Q shell. */
+.vault-status i{background:#a8792a}
+.vault-status.unlocked i{background:#888}
+.vault-panel{padding:24px;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin-top:15px}
+.vault-panel-heading{display:flex;align-items:center;gap:13px;margin-bottom:20px}
+.vault-panel-heading h3,.vault-panel h3{font-size:15px;margin:0 0 5px}
+.vault-panel-heading p,.vault-panel>.muted{font-size:11px;line-height:1.6;margin:0}
+.vault-form{display:grid;gap:9px;max-width:560px}
+.vault-form label{font-size:11px;font-weight:650;color:var(--text);margin:4px 0 0}
+.vault-form input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:var(--control-bg);color:var(--control-text);font:inherit;font-size:12px}
+.vault-form .primary-action{justify-self:start;margin-top:8px}
+.form-hint{font-size:10px;color:var(--muted);margin:2px 0}
+.session-details{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px 14px;padding:17px 0;margin:6px 0 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.session-details span{font-size:9px;letter-spacing:.08em;color:var(--muted)}
+.session-details b{font-size:11px;font-weight:650}
+.password-change-panel{margin-top:15px}
+.vault-message{padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:11px;line-height:1.5;color:var(--text)}
+.vault-message.error{border-color:#9b7777;color:#9b4444}
+body.dark .vault-message.error{color:#e4a0a0;border-color:#684444}
+@media(max-width:620px){.session-details{grid-template-columns:1fr 1fr}.vault-panel{padding:18px}}

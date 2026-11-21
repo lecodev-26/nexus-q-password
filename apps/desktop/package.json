@@ -16,6 +16,7 @@
     "@sveltejs/vite-plugin-svelte": "^6.2.0",
     "@tauri-apps/cli": "^2.12.5",
     "@tsconfig/svelte": "^5.0.4",
+    "rollup": "^4.52.5",
     "svelte-check": "^4.3.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.7"

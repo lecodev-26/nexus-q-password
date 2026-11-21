@@ -12,6 +12,14 @@ struct VaultState {
     session: Mutex<Option<nexus_q_password_core::VaultSession>>,
 }
 
+fn validate_new_master_password(password: &str) -> Result<(), String> {
+    let length = password.chars().count();
+    if !(12..=1024).contains(&length) {
+        return Err("Master password must contain between 12 and 1024 characters.".into());
+    }
+    Ok(())
+}
+
 fn vault_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -56,6 +64,7 @@ fn vault_create(
     state: State<'_, VaultState>,
     master_password: Zeroizing<String>,
 ) -> Result<(), String> {
+    validate_new_master_password(&master_password)?;
     let mut session = state
         .session
         .lock()
@@ -108,6 +117,12 @@ fn vault_lock(state: State<'_, VaultState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn vault_exists(app: AppHandle) -> Result<bool, String> {
+    let path = vault_file_path(&app)?;
+    path.try_exists().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn vault_is_unlocked(state: State<'_, VaultState>) -> Result<bool, String> {
     let session = state
         .session
@@ -124,6 +139,7 @@ fn vault_change_master_password(
     state: State<'_, VaultState>,
     new_master_password: Zeroizing<String>,
 ) -> Result<(), String> {
+    validate_new_master_password(&new_master_password)?;
     let mut session = state
         .session
         .lock()
@@ -154,9 +170,27 @@ fn main() {
             vault_create,
             vault_unlock,
             vault_lock,
+            vault_exists,
             vault_is_unlocked,
             vault_change_master_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NEXUS-Q Password");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_new_master_password;
+
+    #[test]
+    fn new_master_password_requires_at_least_twelve_characters() {
+        assert!(validate_new_master_password("correct horse").is_ok());
+        assert!(validate_new_master_password("short-pass").is_err());
+    }
+
+    #[test]
+    fn new_master_password_enforces_the_upper_bound_by_characters() {
+        assert!(validate_new_master_password(&"a".repeat(1024)).is_ok());
+        assert!(validate_new_master_password(&"a".repeat(1025)).is_err());
+    }
 }
